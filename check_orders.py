@@ -8,7 +8,7 @@ from playwright.sync_api import sync_playwright
 
 URL = "https://mdirect.myntrainfo.com/Orders/Search"
 
-def send_mobile_notification(message, title="New Myntra MDirect Order!"):
+def send_mobile_notification(message, title="Myntra"):
     # 1. Instant Mobile Push Notification via ntfy.sh
     ntfy_topic = os.environ.get("NTFY_TOPIC", "").strip()
     if ntfy_topic:
@@ -19,7 +19,7 @@ def send_mobile_notification(message, title="New Myntra MDirect Order!"):
                 headers={
                     "Title": title,
                     "Priority": "high",
-                    "Tags": "shopping_bags,bell",
+                    "Click": URL,
                 },
             )
             urllib.request.urlopen(req, timeout=15)
@@ -33,10 +33,10 @@ def send_mobile_notification(message, title="New Myntra MDirect Order!"):
     if email_addr and email_pass:
         try:
             msg = EmailMessage()
-            msg["Subject"] = f"🚨 {title}: {message}"
+            msg["Subject"] = f"{title}: {message}"
             msg["From"] = email_addr
             msg["To"] = email_addr
-            msg.set_content(f"{message}\n\nCheck here: {URL}")
+            msg.set_content(f"{message}\n\nManage orders: {URL}")
             with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
                 smtp.login(email_addr, email_pass)
                 smtp.send_message(msg)
@@ -73,11 +73,8 @@ def main():
 
         page = context.new_page()
         print("Opening Myntra MDirect...")
-        # Use domcontentloaded so Myntra background scripts don't cause a 60s timeout
         page.goto(URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(8000)
-
-        print("Current Page URL:", page.url)
 
         # If redirected to login page, try logging in with Email + Password
         if "login" in page.url.lower() or page.locator("input[type='password']").count() > 0:
@@ -95,33 +92,36 @@ def main():
                 except Exception as e:
                     print("Auto-login error:", e)
             else:
-                send_mobile_notification("⚠️ Myntra session expired! Please refresh MYNTRA_COOKIES in GitHub.")
+                send_mobile_notification(
+                    "Session expired. Please refresh MYNTRA_COOKIES in GitHub.",
+                    title="Myntra Action Required"
+                )
                 browser.close()
                 return
 
         body_text = page.inner_text("body")
-        
-        # Check if we successfully see the Orders page
-        if "Open Orders" in body_text:
-            print("Successfully loaded the Myntra Orders page!")
-        else:
-            print("Page loaded, snippet of text seen:", body_text[:300].replace("\n", " "))
-
-        # Look for Open Orders (X)
         match = re.search(r"Open Orders\s*\((\d+)\)", body_text, re.IGNORECASE)
 
         if match:
             order_count = int(match.group(1))
             print(f"Found Open Orders ({order_count})")
-            if order_count > 0:
-                send_mobile_notification(f"You have Open Orders ({order_count}) waiting on Myntra MDirect!")
+            if order_count == 1:
+                send_mobile_notification(
+                    "You have 1 new order waiting for fulfillment.",
+                    title="Myntra"
+                )
+            elif order_count > 1:
+                send_mobile_notification(
+                    f"You have {order_count} new orders waiting for fulfillment.",
+                    title="Myntra"
+                )
         else:
             print("Currently says 'Open Orders' with 0 new orders.")
-            # If triggered manually via button click, send a test notification so you know ntfy works!
+            # If triggered manually via button click, send a preview of how a real order notification looks!
             if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
                 send_mobile_notification(
-                    "✅ Test successful! Your Myntra checker is working (Currently 0 Open Orders).",
-                    title="Myntra Checker Connected"
+                    "You have 1 new order waiting for fulfillment. (Test Preview — 0 actual orders)",
+                    title="Myntra"
                 )
 
         browser.close()
