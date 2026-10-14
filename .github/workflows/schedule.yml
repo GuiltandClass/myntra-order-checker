@@ -1,0 +1,34 @@
+name: Myntra Hourly Order Check
+
+on:
+  schedule:
+    # Runs every 30 minutes, 24/7
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Lets you click a button to test it anytime!
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Cloud Browser
+        run: |
+          pip install playwright
+          playwright install chromium --with-deps
+
+      - name: Check Myntra Open Orders
+        env:
+          MYNTRA_COOKIES: ${{ secrets.MYNTRA_COOKIES }}
+          MYNTRA_EMAIL: ${{ secrets.MYNTRA_EMAIL }}
+          MYNTRA_PASSWORD: ${{ secrets.MYNTRA_PASSWORD }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+        run: python check_orders.py
