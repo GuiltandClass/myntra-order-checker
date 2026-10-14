@@ -8,104 +8,123 @@ from playwright.sync_api import sync_playwright
 
 URL = "https://mdirect.myntrainfo.com/Orders/Search"
 
+def send_mobile_notification(message, title="New Myntra MDirect Order!"):
+    # 1. Instant Mobile Push Notification via ntfy.sh
+    ntfy_topic = os.environ.get("NTFY_TOPIC", "").strip()
+    if ntfy_topic:
+        try:
+            req = urllib.request.Request(
+                f"https://ntfy.sh/{ntfy_topic}",
+                data=message.encode("utf-8"),
+                headers={
+                    "Title": title,
+                    "Priority": "high",
+                    "Tags": "shopping_bags,bell",
+                },
+            )
+            urllib.request.urlopen(req, timeout=15)
+            print("Mobile push notification sent via ntfy!")
+        except Exception as e:
+            print("ntfy error:", e)
 
-def send_mobile_notification(message):
-  # 1. Instant Mobile Push Notification via ntfy.sh (100% Free)
-  ntfy_topic = os.environ.get("NTFY_TOPIC", "").strip()
-  if ntfy_topic:
-    req = urllib.request.Request(
-        f"https://ntfy.sh/{ntfy_topic}",
-        data=message.encode("utf-8"),
-        headers={
-            "Title": "New Myntra MDirect Order!",
-            "Priority": "high",
-            "Tags": "shopping_bags,bell",
-        },
-    )
-    urllib.request.urlopen(req)
-    print("Mobile push notification sent!")
-
-  # 2. Email Notification (Optional - runs if EMAIL_ADDRESS is added)
-  email_addr = os.environ.get("EMAIL_ADDRESS", "").strip()
-  email_pass = os.environ.get("EMAIL_APP_PASSWORD", "").strip()
-  if email_addr and email_pass:
-    msg = EmailMessage()
-    msg["Subject"] = f"🚨 Myntra Alert: {message}"
-    msg["From"] = email_addr
-    msg["To"] = email_addr
-    msg.set_content(f"{message}\n\nCheck here: {URL}")
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-      smtp.login(email_addr, email_pass)
-      smtp.send_message(msg)
-    print("Email notification sent!")
-
+    # 2. Email Notification (Optional)
+    email_addr = os.environ.get("EMAIL_ADDRESS", "").strip()
+    email_pass = os.environ.get("EMAIL_APP_PASSWORD", "").strip()
+    if email_addr and email_pass:
+        try:
+            msg = EmailMessage()
+            msg["Subject"] = f"🚨 {title}: {message}"
+            msg["From"] = email_addr
+            msg["To"] = email_addr
+            msg.set_content(f"{message}\n\nCheck here: {URL}")
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+                smtp.login(email_addr, email_pass)
+                smtp.send_message(msg)
+            print("Email notification sent!")
+        except Exception as e:
+            print("Email error:", e)
 
 def main():
-  with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    context = browser.new_context(viewport={"width": 1440, "height": 900})
-
-    # Load saved session cookies if provided
-    cookies_raw = os.environ.get("MYNTRA_COOKIES", "").strip()
-    if cookies_raw:
-      try:
-        raw_cookies = json.loads(cookies_raw)
-        clean_cookies = []
-        for c in raw_cookies:
-          cookie = {
-              "name": c["name"],
-              "value": c["value"],
-              "domain": c["domain"],
-              "path": c.get("path", "/"),
-          }
-          clean_cookies.append(cookie)
-        context.add_cookies(clean_cookies)
-      except Exception as e:
-        print("Cookie load warning:", e)
-
-    page = context.new_page()
-    page.goto(URL, wait_until="networkidle", timeout=60000)
-    page.wait_for_timeout(5000)
-
-    # If redirected to a login page, log in automatically using Email + Password
-    if (
-        "login" in page.url.lower()
-        or page.locator("input[type='password']").count() > 0
-    ):
-      print("Session expired, logging in with credentials...")
-      email = os.environ.get("MYNTRA_EMAIL", "")
-      password = os.environ.get("MYNTRA_PASSWORD", "")
-      if email and password:
-        page.locator("input[type='email'], input[type='text']").first.fill(
-            email
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            viewport={"width": 1440, "height": 900},
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
         )
-        page.locator("input[type='password']").first.fill(password)
-        page.locator("button[type='submit'], button:has-text('Login')").first.click()
-        page.wait_for_Load_state("networkidle")
-        page.goto(URL, wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(5000)
-      else:
-        send_mobile_notification(
-            "⚠️ Myntra session expired! Please refresh MYNTRA_COOKIES."
-        )
-        return
 
-    # Look for the "Open Orders" button text on the page
-    body_text = page.inner_text("body")
-    match = re.search(r"Open Orders\s*\((\d+)\)", body_text, re.IGNORECASE)
+        # Load saved session cookies
+        cookies_raw = os.environ.get("MYNTRA_COOKIES", "").strip()
+        if cookies_raw:
+            try:
+                raw_cookies = json.loads(cookies_raw)
+                clean_cookies = []
+                for c in raw_cookies:
+                    if "name" in c and "value" in c and "domain" in c:
+                        clean_cookies.append({
+                            "name": str(c["name"]),
+                            "value": str(c["value"]),
+                            "domain": str(c["domain"]),
+                            "path": str(c.get("path", "/")),
+                        })
+                context.add_cookies(clean_cookies)
+                print(f"Loaded {len(clean_cookies)} session cookies.")
+            except Exception as e:
+                print("Cookie load warning:", e)
 
-    if match:
-      order_count = int(match.group(1))
-      print(f"Found Open Orders ({order_count})")
-      if order_count > 0:
-        send_mobile_notification(
-            f"You have Open Orders ({order_count}) waiting on Myntra MDirect!"
-        )
-    else:
-      print("Currently says 'Open Orders' with no new order count (0 orders).")
+        page = context.new_page()
+        print("Opening Myntra MDirect...")
+        # Use domcontentloaded so Myntra background scripts don't cause a 60s timeout
+        page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(8000)
 
-    browser.close()
+        print("Current Page URL:", page.url)
 
+        # If redirected to login page, try logging in with Email + Password
+        if "login" in page.url.lower() or page.locator("input[type='password']").count() > 0:
+            print("Session cookies redirected to login. Trying email/password...")
+            email = os.environ.get("MYNTRA_EMAIL", "").strip()
+            password = os.environ.get("MYNTRA_PASSWORD", "").strip()
+            if email and password:
+                try:
+                    page.locator("input[type='email'], input[type='text'], input[name*='user'], input[name*='email']").first.fill(email)
+                    page.locator("input[type='password']").first.fill(password)
+                    page.locator("button[type='submit'], button:has-text('Login'), button:has-text('Sign')").first.click()
+                    page.wait_for_timeout(8000)
+                    page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+                    page.wait_for_timeout(8000)
+                except Exception as e:
+                    print("Auto-login error:", e)
+            else:
+                send_mobile_notification("⚠️ Myntra session expired! Please refresh MYNTRA_COOKIES in GitHub.")
+                browser.close()
+                return
+
+        body_text = page.inner_text("body")
+        
+        # Check if we successfully see the Orders page
+        if "Open Orders" in body_text:
+            print("Successfully loaded the Myntra Orders page!")
+        else:
+            print("Page loaded, snippet of text seen:", body_text[:300].replace("\n", " "))
+
+        # Look for Open Orders (X)
+        match = re.search(r"Open Orders\s*\((\d+)\)", body_text, re.IGNORECASE)
+
+        if match:
+            order_count = int(match.group(1))
+            print(f"Found Open Orders ({order_count})")
+            if order_count > 0:
+                send_mobile_notification(f"You have Open Orders ({order_count}) waiting on Myntra MDirect!")
+        else:
+            print("Currently says 'Open Orders' with 0 new orders.")
+            # If triggered manually via button click, send a test notification so you know ntfy works!
+            if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+                send_mobile_notification(
+                    "✅ Test successful! Your Myntra checker is working (Currently 0 Open Orders).",
+                    title="Myntra Checker Connected"
+                )
+
+        browser.close()
 
 if __name__ == "__main__":
-  main()
+    main()
