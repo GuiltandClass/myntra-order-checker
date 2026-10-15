@@ -2,10 +2,8 @@ name: Myntra Hourly Order Check
 
 on:
   schedule:
-    # 6:00 AM IST check (00:30 UTC)
-    - cron: '30 0 * * *'
-    # Every 30 mins from 6:30 AM IST to 12:00 AM Midnight IST (01:00 to 18:30 UTC)
-    - cron: '0,30 1-18 * * *'
+    # Runs strictly every 30 minutes, around the clock
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 jobs:
