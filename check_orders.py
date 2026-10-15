@@ -6,10 +6,10 @@ from email.message import EmailMessage
 import urllib.request
 from playwright.sync_api import sync_playwright
 
-URL = "https://mdirect.myntrainfo.com/Orders/Search"
+MYNTRA_URL = "https://mdirect.myntrainfo.com/Orders/Search"
+LOTUS_URL = "https://partners.lotusimall.com/Seller/Orders_new"
 
-def send_mobile_notification(message, title="Myntra"):
-    # 1. Instant Mobile Push Notification via ntfy.sh
+def send_mobile_notification(message, title="Order Alert", click_url=MYNTRA_URL):
     ntfy_topic = os.environ.get("NTFY_TOPIC", "").strip()
     if ntfy_topic:
         try:
@@ -19,30 +19,14 @@ def send_mobile_notification(message, title="Myntra"):
                 headers={
                     "Title": title,
                     "Priority": "high",
-                    "Click": URL,
+                    "Click": click_url,
                 },
+                method="POST"
             )
             urllib.request.urlopen(req, timeout=15)
-            print("Mobile push notification sent via ntfy!")
+            print(f"[{title}] Notification sent!")
         except Exception as e:
-            print("ntfy error:", e)
-
-    # 2. Email Notification (Optional)
-    email_addr = os.environ.get("EMAIL_ADDRESS", "").strip()
-    email_pass = os.environ.get("EMAIL_APP_PASSWORD", "").strip()
-    if email_addr and email_pass:
-        try:
-            msg = EmailMessage()
-            msg["Subject"] = f"{title}: {message}"
-            msg["From"] = email_addr
-            msg["To"] = email_addr
-            msg.set_content(f"{message}\n\nManage orders: {URL}")
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-                smtp.login(email_addr, email_pass)
-                smtp.send_message(msg)
-            print("Email notification sent!")
-        except Exception as e:
-            print("Email error:", e)
+            print(f"[{title}] ntfy error:", e)
 
 def main():
     with sync_playwright() as p:
@@ -52,77 +36,77 @@ def main():
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
         )
 
-        # Load saved session cookies
-        cookies_raw = os.environ.get("MYNTRA_COOKIES", "").strip()
-        if cookies_raw:
+        # 1. Load Myntra Cookies
+        myntra_cookies = os.environ.get("MYNTRA_COOKIES", "").strip()
+        if myntra_cookies:
             try:
-                raw_cookies = json.loads(cookies_raw)
-                clean_cookies = []
-                for c in raw_cookies:
-                    if "name" in c and "value" in c and "domain" in c:
-                        clean_cookies.append({
-                            "name": str(c["name"]),
-                            "value": str(c["value"]),
-                            "domain": str(c["domain"]),
-                            "path": str(c.get("path", "/")),
-                        })
-                context.add_cookies(clean_cookies)
-                print(f"Loaded {len(clean_cookies)} session cookies.")
+                context.add_cookies([{"name": c["name"], "value": c["value"], "domain": c["domain"], "path": c.get("path", "/")} for c in json.loads(myntra_cookies) if "name" in c])
             except Exception as e:
-                print("Cookie load warning:", e)
+                print("Myntra cookie warning:", e)
 
-        page = context.new_page()
-        print("Opening Myntra MDirect...")
-        page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(8000)
+        myntra_page = context.new_page()
+        lotus_page = context.new_page()
 
-        # If redirected to login page, try logging in with Email + Password
-        if "login" in page.url.lower() or page.locator("input[type='password']").count() > 0:
-            print("Session cookies redirected to login. Trying email/password...")
-            email = os.environ.get("MYNTRA_EMAIL", "").strip()
-            password = os.environ.get("MYNTRA_PASSWORD", "").strip()
-            if email and password:
-                try:
-                    page.locator("input[type='email'], input[type='text'], input[name*='user'], input[name*='email']").first.fill(email)
-                    page.locator("input[type='password']").first.fill(password)
-                    page.locator("button[type='submit'], button:has-text('Login'), button:has-text('Sign')").first.click()
-                    page.wait_for_timeout(8000)
-                    page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-                    page.wait_for_timeout(8000)
-                except Exception as e:
-                    print("Auto-login error:", e)
+        print("Opening Myntra MDirect and Lotus iMall in parallel...")
+        try:
+            myntra_page.goto(MYNTRA_URL, wait_until="domcontentloaded", timeout=45000)
+        except Exception as e:
+            print("Myntra load warning:", e)
+
+        try:
+            lotus_page.goto(LOTUS_URL, wait_until="domcontentloaded", timeout=45000)
+        except Exception as e:
+            print("Lotus load warning:", e)
+
+        myntra_page.wait_for_timeout(6000)
+
+        # ==========================================
+        # CHECK MYNTRA
+        # ==========================================
+        try:
+            m_text = myntra_page.inner_text("body")
+            m_match = re.search(r"Open Orders\s*\((\d+)\)", m_text, re.IGNORECASE)
+            if m_match:
+                m_count = int(m_match.group(1))
+                print(f"[Myntra] Open Orders: {m_count}")
+                if m_count > 0:
+                    send_mobile_notification(f"You have {m_count} new order(s) waiting on Myntra.", title="Myntra", click_url=MYNTRA_URL)
+        except Exception as e:
+            print("[Myntra] Check error:", e)
+
+        # ==========================================
+        # CHECK LOTUS iMALL
+        # ==========================================
+        try:
+            # If redirected to login page, log in automatically using email & password
+            if "login" in lotus_page.url.lower() or lotus_page.locator("input[type='password']").count() > 0:
+                print("[Lotus iMall] Logging in with credentials...")
+                l_email = os.environ.get("LOTUS_EMAIL", "").strip()
+                l_pass = os.environ.get("LOTUS_PASSWORD", "").strip()
+                if l_email and l_pass:
+                    lotus_page.locator("input[type='email'], input[type='text'], input[name*='user'], input[name*='email'], input[name*='id']").first.fill(l_email)
+                    lotus_page.locator("input[type='password']").first.fill(l_pass)
+                    lotus_page.locator("button[type='submit'], input[type='submit'], button:has-text('Login')").first.click()
+                    lotus_page.wait_for_timeout(6000)
+                    lotus_page.goto(LOTUS_URL, wait_until="domcontentloaded", timeout=45000)
+                    lotus_page.wait_for_timeout(5000)
+
+            l_text = lotus_page.inner_text("body")
+            # Matches the pending order count above "PENDING Awaiting acceptance"
+            l_match = re.search(r"(\d+)\s+PENDING\s+Awaiting acceptance", l_text, re.IGNORECASE)
+            if l_match:
+                l_count = int(l_match.group(1))
+                print(f"[Lotus iMall] PENDING orders: {l_count}")
+                if l_count > 0:
+                    send_mobile_notification(f"You have {l_count} new order(s) waiting on Lotus iMall.", title="Lotus iMall", click_url=LOTUS_URL)
             else:
-                send_mobile_notification(
-                    "Session expired. Please refresh MYNTRA_COOKIES in GitHub.",
-                    title="Myntra Action Required"
-                )
-                browser.close()
-                return
+                print("[Lotus iMall] Could not find pending count. Text seen snippet:", l_text[:150].replace("\n", " "))
+        except Exception as e:
+            print("[Lotus iMall] Check error:", e)
 
-        body_text = page.inner_text("body")
-        match = re.search(r"Open Orders\s*\((\d+)\)", body_text, re.IGNORECASE)
-
-        if match:
-            order_count = int(match.group(1))
-            print(f"Found Open Orders ({order_count})")
-            if order_count == 1:
-                send_mobile_notification(
-                    "You have 1 new order waiting for fulfillment.",
-                    title="Myntra"
-                )
-            elif order_count > 1:
-                send_mobile_notification(
-                    f"You have {order_count} new orders waiting for fulfillment.",
-                    title="Myntra"
-                )
-        else:
-            print("Currently says 'Open Orders' with 0 new orders.")
-            # If triggered manually via button click, send a preview of how a real order notification looks!
-            if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
-                send_mobile_notification(
-                    "You have 1 new order waiting for fulfillment. (Test Preview — 0 actual orders)",
-                    title="Myntra"
-                )
+        # Manual test notification if triggered from Actions page
+        if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+            send_mobile_notification("Both Myntra and Lotus iMall checked successfully!", title="Checker Test", click_url=MYNTRA_URL)
 
         browser.close()
 
