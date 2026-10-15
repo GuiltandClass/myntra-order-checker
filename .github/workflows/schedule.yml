@@ -39,11 +39,13 @@ jobs:
           pip install playwright
           playwright install-deps chromium
 
-      - name: Check Myntra Open Orders
+      - name: Check Myntra & Lotus Orders
         env:
           MYNTRA_COOKIES: ${{ secrets.MYNTRA_COOKIES }}
           MYNTRA_EMAIL: ${{ secrets.MYNTRA_EMAIL }}
           MYNTRA_PASSWORD: ${{ secrets.MYNTRA_PASSWORD }}
+          LOTUS_EMAIL: ${{ secrets.LOTUS_EMAIL }}
+          LOTUS_PASSWORD: ${{ secrets.LOTUS_PASSWORD }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
