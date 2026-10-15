@@ -19,7 +19,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Cache Cloud Browser
         id: playwright-cache
@@ -38,6 +37,7 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: |
           pip install playwright
+          playwright install-deps chromium
 
       - name: Check Myntra Open Orders
         env:
