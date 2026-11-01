@@ -3,7 +3,7 @@ import os
 import re
 import urllib.request
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
+from playwright_stealth import Stealth
 
 MYNTRA_URL = "https://mdirect.myntrainfo.com/Orders/Search"
 LOTUS_URL = "https://partners.lotusimall.com/Seller/Orders_new"
@@ -28,8 +28,8 @@ def send_mobile_notification(message, title="Order Alert", click_url=MYNTRA_URL)
             print(f"[{title}] ntfy error:", e)
 
 def main():
-    with sync_playwright() as p:
-        # Launch with specific arguments that hide the "headless" flags
+    # NEW: Wrap the entire Playwright instance in the Stealth module
+    with Stealth().use_sync(sync_playwright()) as p:
         browser = p.chromium.launch(
             headless=True,
             args=[
@@ -56,10 +56,6 @@ def main():
 
         myntra_page = context.new_page()
         lotus_page = context.new_page()
-
-        # Apply stealth patches to both pages before navigating anywhere
-        stealth_sync(myntra_page)
-        stealth_sync(lotus_page)
 
         print("Opening Myntra MDirect and Lotus iMall in parallel...")
         try:
