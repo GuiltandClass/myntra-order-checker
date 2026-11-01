@@ -1,10 +1,9 @@
 import json
 import os
 import re
-import smtplib
-from email.message import EmailMessage
 import urllib.request
 from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 
 MYNTRA_URL = "https://mdirect.myntrainfo.com/Orders/Search"
 LOTUS_URL = "https://partners.lotusimall.com/Seller/Orders_new"
@@ -30,10 +29,21 @@ def send_mobile_notification(message, title="Order Alert", click_url=MYNTRA_URL)
 
 def main():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # Launch with specific arguments that hide the "headless" flags
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox"
+            ]
+        )
+        
         context = browser.new_context(
             viewport={"width": 1440, "height": 900},
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+            locale="en-IN",
+            timezone_id="Asia/Kolkata"
         )
 
         # 1. Load Myntra Cookies
@@ -46,6 +56,10 @@ def main():
 
         myntra_page = context.new_page()
         lotus_page = context.new_page()
+
+        # Apply stealth patches to both pages before navigating anywhere
+        stealth_sync(myntra_page)
+        stealth_sync(lotus_page)
 
         print("Opening Myntra MDirect and Lotus iMall in parallel...")
         try:
@@ -80,7 +94,6 @@ def main():
         # CHECK LOTUS iMALL
         # ==========================================
         try:
-            # If redirected to login page, log in automatically using email & password
             if "login" in lotus_page.url.lower() or lotus_page.locator("input[type='password']").count() > 0:
                 print("[Lotus iMall] Logging in with credentials...")
                 l_email = os.environ.get("LOTUS_EMAIL", "").strip()
@@ -94,7 +107,6 @@ def main():
                     lotus_page.wait_for_timeout(5000)
 
             l_text = lotus_page.inner_text("body")
-            # Matches the pending order count above "PENDING Awaiting acceptance"
             l_match = re.search(r"(\d+)\s+PENDING\s+Awaiting acceptance", l_text, re.IGNORECASE)
             if l_match:
                 l_count = int(l_match.group(1))
@@ -106,7 +118,6 @@ def main():
         except Exception as e:
             print("[Lotus iMall] Check error:", e)
 
-        # Manual test notification if triggered from Actions page
         if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
             send_mobile_notification("Both Myntra and Lotus iMall checked successfully!", title="Checker Test", click_url=MYNTRA_URL)
 
