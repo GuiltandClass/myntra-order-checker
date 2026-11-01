@@ -71,6 +71,8 @@ def main():
                 print(f"[Myntra] Open Orders: {m_count}")
                 if m_count > 0:
                     send_mobile_notification(f"You have {m_count} new order(s) waiting on Myntra.", title="Myntra", click_url=MYNTRA_URL)
+            else:
+                print("[Myntra] Could not find 'Open Orders'. Text seen snippet:", m_text[:150].replace("\n", " "))
         except Exception as e:
             print("[Myntra] Check error:", e)
 
