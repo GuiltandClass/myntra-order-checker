@@ -1,8 +1,8 @@
-name: Myntra Hourly Order Check
+name: Myntra & Lotus Order Check
 
 on:
   schedule:
-    # Runs strictly every 30 minutes, around the clock
+    # Runs every 30 minutes, around the clock (GitHub may delay runs at peak times)
     - cron: '*/30 * * * *'
   workflow_dispatch:
 
@@ -45,6 +45,19 @@ jobs:
           LOTUS_EMAIL: ${{ secrets.LOTUS_EMAIL }}
           LOTUS_PASSWORD: ${{ secrets.LOTUS_PASSWORD }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
-          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          DEBUG_CAPTURE: '1'
+          ALERT_ON_FAILURE: '0'   # switch to '1' once things work
         run: python check_orders.py
+
+      - name: Upload debug files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug
+          path: |
+            myntra_debug.png
+            myntra_debug.html
+            lotus_debug.png
+            lotus_debug.html
+          if-no-files-found: ignore
+          retention-days: 1
